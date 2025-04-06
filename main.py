@@ -5,6 +5,8 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, CallbackQu
 from azure.cognitiveservices.vision.computervision import ComputerVisionClient
 from msrest.authentication import CognitiveServicesCredentials
 import io
+import time
+from azure.core.exceptions import ServiceRequestError
 
 # Load environment variables from .env file
 load_dotenv()
@@ -42,6 +44,24 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     language_name = "английский" if language_code == "en" else "русский"
     await query.edit_message_text(f"Вы выбрали {language_name} язык для распознавания. Теперь отправьте изображение.")
 
+async def analyze_image_with_retry(self, img_stream: io.BytesIO, language: str, max_retries=3, retry_delay=2):
+    """Analyzes the image with retry logic."""
+    for attempt in range(max_retries):
+        try:
+            read_response = computervision_client.recognize_printed_text_in_stream(img_stream, language=language)
+            return read_response
+        except ServiceRequestError as e:
+            if attempt < max_retries - 1:
+                print(f"Временная ошибка соединения (попытка {attempt + 1}/{max_retries}): {e}. Повторная попытка через {retry_delay} секунды...")
+                time.sleep(retry_delay)
+            else:
+                print(f"Произошла ошибка после {max_retries} попыток: {e}")
+                raise
+        except Exception as e:
+            print(f"Произошла непредвиденная ошибка: {e}")
+            raise
+    return None
+
 async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles incoming image messages and performs OCR with the selected language."""
     if update.message.photo:
@@ -59,25 +79,32 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Create a file-like object from the byte array
             img_stream = io.BytesIO(image_bytes)
 
-            # Call Azure AI Vision for OCR with the selected language
-            read_response = computervision_client.recognize_printed_text_in_stream(img_stream, language=language)
+            # Analyze image with retry logic
+            read_response = await self.analyze_image_with_retry(img_stream, language)
 
-            text_lines = []
-            if read_response.regions:
-                for region in read_response.regions:
-                    for line in region.lines:
-                        text_lines.append(" ".join([word.text for word in line.words]))
+            if read_response:
+                text_lines = []
+                if read_response.regions:
+                    for region in read_response.regions:
+                        for line in region.lines:
+                            text_lines.append(" ".join([word.text for word in line.words]))
 
-            if text_lines:
-                extracted_text = "\n".join(text_lines)
-                response_text = "Recognized text (English):\n" if language == "en" else "Распознанный текст (русский):\n"
-                await update.message.reply_text(response_text + extracted_text)
+                if text_lines:
+                    extracted_text = "\n".join(text_lines)
+                    response_text = "Recognized text (English):\n" if language == "en" else "Распознанный текст (русский):\n"
+                    await update.message.reply_text(response_text + extracted_text)
+                else:
+                    response_not_found = "No text found in the image (English)." if language == "en" else "Текст на изображении не найден (русский)."
+                    await update.message.reply_text(response_not_found)
             else:
-                response_not_found = "No text found in the image (English)." if language == "en" else "Текст на изображении не найден (русский)."
-                await update.message.reply_text(response_not_found)
+                error_message = f"Не удалось распознать текст после нескольких попыток (English)." if language == "en" else f"Не удалось распознать текст после нескольких попыток (русский)."
+                await update.message.reply_text(error_message)
 
+        except ServiceRequestError as e:
+            error_message = f"Произошла ошибка при обработке изображения (сетевая проблема) (English): {e}" if language == "en" else f"Произошла ошибка при обработке изображения (сетевая проблема) (русский): {e}"
+            await update.message.reply_text(error_message)
         except Exception as e:
-            error_message = f"Error processing image (English): {e}" if language == "en" else f"Произошла ошибка при обработке изображения (русский): {e}"
+            error_message = f"Произошла ошибка при обработке изображения (English): {e}" if language == "en" else f"Произошла ошибка при обработке изображения (русский): {e}"
             await update.message.reply_text(error_message)
     else:
         await update.message.reply_text("Please send an image.")
@@ -85,6 +112,7 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     # Initialize the bot with the token
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    application.bot_data['vision_client'] = computervision_client # Store client in bot data
 
     # Command handler for starting the bot and selecting language
     application.add_handler(MessageHandler(filters.Command("start"), start))
