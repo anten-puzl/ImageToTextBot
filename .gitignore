@@ -1,1 +1,6 @@
 .env
+*.pem
+id_rsa
+id_dsa
+ssh_key
+*.pub
