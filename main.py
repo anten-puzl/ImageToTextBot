@@ -5,7 +5,6 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, CallbackQu
 from azure.cognitiveservices.vision.computervision import ComputerVisionClient
 from msrest.authentication import CognitiveServicesCredentials
 import io
-from PIL import Image
 
 # Load environment variables from .env file
 load_dotenv()
