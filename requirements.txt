@@ -1,4 +1,3 @@
 python-telegram-bot
 python-dotenv
 azure-cognitiveservices-vision-computervision
-Pillow
