@@ -8,7 +8,6 @@ import io
 import time
 from azure.core.exceptions import ServiceRequestError
 
-#1
 # Load environment variables from .env file
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -98,6 +97,11 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == 'app_version':
         await query.message.reply_text(f"Текущая версия приложения: {APP_VERSION}")
 
+async def handle_version_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the 'version' text message."""
+    if update.message.text.lower() == "version":
+        await update.message.reply_text(f"Текущая версия приложения: {APP_VERSION}")
+
 def main():
     # Initialize the bot with the token
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
@@ -110,6 +114,9 @@ def main():
 
     # Handle image messages
     application.add_handler(MessageHandler(filters.PHOTO, handle_image))
+
+    # Handle the 'version' text message
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_version_text))
 
     # Start polling for updates
     application.run_polling()
