@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, CommandHandler, CallbackQueryHandler
 from azure.cognitiveservices.vision.computervision import ComputerVisionClient
 from msrest.authentication import CognitiveServicesCredentials
 import io
@@ -25,6 +25,9 @@ if not SUBSCRIPTION_KEY or not ENDPOINT:
 
 # Initialize Computer Vision client
 computervision_client = ComputerVisionClient(ENDPOINT, CognitiveServicesCredentials(SUBSCRIPTION_KEY))
+
+# Define the application version
+APP_VERSION = "1.01"
 
 async def analyze_image_with_retry(img_stream: io.BytesIO, language_hints=["en", "ru"], max_retries=3, retry_delay=2):
     """Analyzes the image with retry logic."""
@@ -80,9 +83,30 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Please send an image.")
 
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Sends a welcome message with an inline button."""
+    keyboard = [
+        [InlineKeyboardButton("ℹ️ Версия", callback_data='app_version')],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Добро пожаловать! Отправьте изображение для распознавания текста.", reply_markup=reply_markup)
+
+async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the inline button click."""
+    query = update.callback_query
+    await query.answer()  # Acknowledge the callback query
+    if query.data == 'app_version':
+        await query.message.reply_text(f"Текущая версия приложения: {APP_VERSION}")
+
 def main():
     # Initialize the bot with the token
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
+    # Handle the /start command
+    application.add_handler(CommandHandler("start", start))
+
+    # Handle inline button clicks
+    application.add_handler(CallbackQueryHandler(button_click))
 
     # Handle image messages
     application.add_handler(MessageHandler(filters.PHOTO, handle_image))
