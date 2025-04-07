@@ -86,22 +86,22 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends a welcome message with an inline button."""
     keyboard = [
-        [InlineKeyboardButton("ℹ️ Версия", callback_data='app_version')],
+        [InlineKeyboardButton("ℹ️ Version", callback_data='app_version')],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Добро пожаловать! Отправьте изображение для распознавания текста.", reply_markup=reply_markup)
+    await update.message.reply_text("Welcome! Send an image to recognize text.", reply_markup=reply_markup)
 
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the inline button click."""
     query = update.callback_query
     await query.answer()  # Acknowledge the callback query
     if query.data == 'app_version':
-        await query.message.reply_text(f"Текущая версия приложения: {APP_VERSION}")
+        await query.message.reply_text(f"Current application version: {APP_VERSION}")
 
 async def handle_version_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the 'version' text message."""
     if update.message.text.lower() == "version":
-        await update.message.reply_text(f"Текущая версия приложения: {APP_VERSION}")
+        await update.message.reply_text(f"Current application version: {APP_VERSION}")
 
 def main():
     # Initialize the bot with the token
