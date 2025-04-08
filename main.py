@@ -15,7 +15,7 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SUBSCRIPTION_KEY = os.getenv("AiAzureToken")
 ENDPOINT = os.getenv("AiAzureEndPoint")
-HEALTH_CHECK_PORT = int(os.getenv("HEALTH_CHECK_PORT", 8080))
+HEALTH_CHECK_PORT = int(os.getenv("HEALTH_CHECK_PORT", 8000 ))
 
 # Check if required environment variables are set
 if not TELEGRAM_TOKEN:
