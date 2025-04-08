@@ -174,7 +174,10 @@ async def health_check(request):
 async def run_health_check_server():
     """Runs the aiohttp server for health checks."""
     app = web.Application()
-    app.add_routes([web.get('/health', health_check)])
+    app.add_routes([
+        web.get('/', health_check),
+        web.get('/health', health_check)
+    ])
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', HEALTH_CHECK_PORT)
@@ -206,7 +209,9 @@ async def main():
         await application.initialize()
         await application.start()
         await application.updater.start_polling()
-        
+
+        logger.info("✅ Bot and health check server started successfully.")
+
         # Keep the application running
         while True:
             await asyncio.sleep(3600)  # Sleep for an hour
