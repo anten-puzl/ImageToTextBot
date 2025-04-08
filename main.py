@@ -5,29 +5,23 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTyp
 from azure.cognitiveservices.vision.computervision import ComputerVisionClient
 from msrest.authentication import CognitiveServicesCredentials
 import io
-# Removing time, as we will use asyncio.sleep
-# import time
 from azure.core.exceptions import ServiceRequestError
 import asyncio
 from aiohttp import web
 import logging
-# Removing inspect, as it is not used
-# import inspect
 
 # Load environment variables from .env file
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SUBSCRIPTION_KEY = os.getenv("AiAzureToken")
-# Correcting the typo in the variable name
 ENDPOINT = os.getenv("AiAzureEndPoint")
-HEALTH_CHECK_PORT = int(os.getenv("HEALTH_CHECK_PORT", 8080)) # Port can be configured
+HEALTH_CHECK_PORT = int(os.getenv("HEALTH_CHECK_PORT", 8080))
 
 # Check if required environment variables are set
 if not TELEGRAM_TOKEN:
     print("❌ TELEGRAM_TOKEN not found. Check your .env file.")
     exit()
 if not SUBSCRIPTION_KEY or not ENDPOINT:
-    # Correcting the error message
     print("❌ AiAzureToken or AiAzureEndPoint not found in .env file.")
     exit()
 
@@ -146,7 +140,11 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.exception("Error processing image:")
         await update.message.reply_text("❌ An unexpected error occurred while processing the image.")
-    # No need for finally for img_stream.close(), BytesIO manages memory
+    finally:
+        try:
+            img_stream.close()
+        except:
+            pass
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends a welcome message with an inline button."""
@@ -159,17 +157,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the inline button click."""
     query = update.callback_query
-    await query.answer()  # Acknowledge the callback query
+    await query.answer()
     if query.data == 'app_version':
-        # Use edit_message_text or reply_text depending on the desired behavior
-        # await query.edit_message_text(text=f"Current application version: {APP_VERSION}")
-        # or reply with a new message
         await query.message.reply_text(f"Current application version: {APP_VERSION}")
-
 
 async def handle_version_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the 'version' text message."""
-    # Check that the text exists and equals 'version' (case-insensitive)
     if update.message and update.message.text and update.message.text.lower() == "version":
         await update.message.reply_text(f"Current application version: {APP_VERSION}")
 
@@ -184,17 +177,14 @@ async def run_health_check_server():
     app.add_routes([web.get('/health', health_check)])
     runner = web.AppRunner(app)
     await runner.setup()
-    # Use 0.0.0.0 to listen on all interfaces (important for Docker/cloud)
     site = web.TCPSite(runner, '0.0.0.0', HEALTH_CHECK_PORT)
     try:
         await site.start()
         logger.info(f"✅ Health check server started on http://0.0.0.0:{HEALTH_CHECK_PORT}/health")
-        return runner # Return the runner for later cleanup
+        return runner
     except OSError as e:
         logger.error(f"❌ Failed to start health check server on port {HEALTH_CHECK_PORT}: {e}")
-        # Decide what to do next - crash or continue without health check
-        # exit(1) # For example, exit if health check is critical
-        return None # Or return None if the bot can run without it
+        return None
 
 async def main():
     """Runs both the Telegram bot and the health check server concurrently."""
@@ -204,50 +194,40 @@ async def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_click))
     application.add_handler(MessageHandler(filters.PHOTO, handle_image))
-    # Ensure the text handler doesn't intercept commands
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_version_text))
 
     # Start the health check server
     health_check_runner = await run_health_check_server()
 
-    logger.info("Starting bot polling...")
+    logger.info("Starting bot polling and health check server...")
+
     try:
-        # Start the bot (use await application.initialize() and await application.start()
-        # if using PTB version v20+)
-        # For v13.x and below, start_polling() is a blocking call,
-        # but since we use asyncio.run(), it will run in the event loop.
-        # In v20+, start_polling() is non-blocking and needs await.
-        # Check PTB version or just use the modern approach:
-        await application.initialize() # Initialization (v20+)
-        await application.start()      # Start receiving updates (v20+)
-        await application.updater.start_polling() # Start polling (v20+)
-
-        # Keep the main script alive (if start_polling is non-blocking)
-        # This is only needed if health_check_runner doesn't keep the event loop active
-        # Usually, the aiohttp server keeps the loop active, so this might be redundant
+        # Initialize the application
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling()
+        
+        # Keep the application running
         while True:
-             await asyncio.sleep(3600) # Just sleep for a long time
-
-    except KeyboardInterrupt:
-        logger.info("Bot stopped by user (KeyboardInterrupt)")
+            await asyncio.sleep(3600)  # Sleep for an hour
+            
     except Exception as e:
         logger.exception("An error occurred in the main loop:")
     finally:
         logger.info("Shutting down application...")
         if application.updater and application.updater.is_running:
-             await application.updater.stop() # Stop polling (v20+)
-        await application.stop()         # Stop receiving updates (v20+)
-        await application.shutdown()     # Shut down the application (v20+)
-
+            await application.updater.stop()
+        await application.stop()
+        await application.shutdown()
+        
         if health_check_runner:
-            logger.info("Cleaning up health check server...")
-            await health_check_runner.cleanup() # Clean up aiohttp resources
-
-    logger.info("Application shutdown complete.")
+            await health_check_runner.cleanup()
+        logger.info("Application shutdown complete.")
 
 if __name__ == '__main__':
     try:
         asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Application stopped by user.")
     except Exception as e:
-        # Log fatal errors during asyncio startup/shutdown
-        logger.critical(f"Critical error during asyncio execution: {e}", exc_info=True)
+        logger.critical(f"Critical error during top-level execution: {e}", exc_info=True)
