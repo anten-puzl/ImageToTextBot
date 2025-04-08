@@ -5,22 +5,30 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTyp
 from azure.cognitiveservices.vision.computervision import ComputerVisionClient
 from msrest.authentication import CognitiveServicesCredentials
 import io
-import time
+# Removing time, as we will use asyncio.sleep
+# import time
 from azure.core.exceptions import ServiceRequestError
+import asyncio
+from aiohttp import web
+import logging
+# Removing inspect, as it is not used
+# import inspect
 
-#2
 # Load environment variables from .env file
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SUBSCRIPTION_KEY = os.getenv("AiAzureToken")
-ENDPOINT = os.getenv("AiAuzreEndPoint")
+# Correcting the typo in the variable name
+ENDPOINT = os.getenv("AiAzureEndPoint")
+HEALTH_CHECK_PORT = int(os.getenv("HEALTH_CHECK_PORT", 8080)) # Port can be configured
 
 # Check if required environment variables are set
 if not TELEGRAM_TOKEN:
     print("❌ TELEGRAM_TOKEN not found. Check your .env file.")
     exit()
 if not SUBSCRIPTION_KEY or not ENDPOINT:
-    print("❌ AiAzureToken or AiAuzreEndPoint not found in .env file.")
+    # Correcting the error message
+    print("❌ AiAzureToken or AiAzureEndPoint not found in .env file.")
     exit()
 
 # Initialize Computer Vision client
@@ -29,59 +37,116 @@ computervision_client = ComputerVisionClient(ENDPOINT, CognitiveServicesCredenti
 # Define the application version
 APP_VERSION = "1.01"
 
+# Configure logging
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 async def analyze_image_with_retry(img_stream: io.BytesIO, language_hints=["en", "ru"], max_retries=3, retry_delay=2):
-    """Analyzes the image with retry logic."""
-    for attempt in range(max_retries):
-        try:
-            read_response = computervision_client.recognize_printed_text_in_stream(img_stream, language_hints=language_hints)
-            return read_response
-        except ServiceRequestError as e:
-            if attempt < max_retries - 1:
-                print(f"Temporary connection error (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
-            else:
-                print(f"Error after {max_retries} retries: {e}")
+    """Analyzes the image with retry logic using asyncio."""
+    try:
+        # Read bytes once to avoid stream issues in to_thread
+        image_bytes_data = img_stream.getvalue()
+        if not image_bytes_data:
+            raise ValueError("Empty image data received")
+
+        for attempt in range(max_retries):
+            try:
+                # Create a new stream for each attempt and seek to start
+                current_stream = io.BytesIO(image_bytes_data)
+                current_stream.seek(0)
+                
+                # Run the blocking SDK call in a separate thread
+                read_response = await asyncio.to_thread(
+                    computervision_client.recognize_printed_text_in_stream,
+                    current_stream,
+                    language_hints=language_hints
+                )
+                
+                if not read_response:
+                    raise ValueError("Empty response from Azure API")
+                    
+                return read_response
+            except ServiceRequestError as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"Temporary connection error (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.error(f"Error after {max_retries} retries: {e}")
+                    raise
+            except Exception as e:
+                logger.exception(f"An unexpected error occurred during image analysis: {e}")
                 raise
-        except Exception as e:
-            print(f"An unexpected error occurred: {e}")
-            raise
-    return None
+    except Exception as e:
+        logger.exception(f"Failed to process image: {e}")
+        raise
+    finally:
+        try:
+            img_stream.close()
+        except:
+            pass
 
 async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles incoming image messages and performs OCR."""
-    if update.message.photo:
-        try:
-            # Get the largest available photo size
-            photo = update.message.photo[-1]
-            file = await context.bot.get_file(photo.file_id)
-            image_bytes = await file.download_as_bytearray()
-
-            # Create a file-like object from the byte array
-            img_stream = io.BytesIO(image_bytes)
-
-            # Analyze image with retry logic
-            read_response = await analyze_image_with_retry(img_stream, language_hints=["en", "ru"])
-
-            if read_response:
-                extracted_text = ""
-                if read_response.regions:
-                    for region in read_response.regions:
-                        for line in region.lines:
-                            extracted_text += " ".join([word.text for word in line.words]) + "\n"
-
-                if extracted_text.strip():
-                    await update.message.reply_text(extracted_text.strip())
-                else:
-                    await update.message.reply_text("No text found in the image.")
-            else:
-                await update.message.reply_text("Failed to recognize text after multiple attempts.")
-
-        except ServiceRequestError as e:
-            await update.message.reply_text(f"Error processing image (network issue): {e}")
-        except Exception as e:
-            await update.message.reply_text(f"Error processing image: {e}")
-    else:
+    if not update.message or not update.message.photo:
         await update.message.reply_text("Please send an image.")
+        return
+
+    try:
+        # Get the largest available photo size
+        photo = update.message.photo[-1]
+        logger.info(f"Processing image from user {update.message.from_user.id}, file_id: {photo.file_id}")
+        
+        # Send "processing" message
+        processing_message = await update.message.reply_text("⏳ Processing image...")
+        
+        file = await context.bot.get_file(photo.file_id)
+        # Download into memory as bytes
+        image_bytes = await file.download_as_bytearray()
+        
+        if not image_bytes:
+            raise ValueError("Failed to download image")
+
+        # Create BytesIO from the downloaded bytes and ensure it's at the start
+        img_stream = io.BytesIO(image_bytes)
+        img_stream.seek(0)
+
+        # Analyze the image with retry logic
+        read_response = await analyze_image_with_retry(img_stream, language_hints=["en", "ru"])
+
+        # Delete processing message
+        await processing_message.delete()
+
+        if read_response and read_response.regions:
+            extracted_text = ""
+            for region in read_response.regions:
+                for line in region.lines:
+                    extracted_text += " ".join([word.text for word in line.words]) + "\n"
+
+            if extracted_text.strip():
+                # Split long messages if needed (Telegram has a 4096 character limit)
+                if len(extracted_text) > 4000:
+                    chunks = [extracted_text[i:i+4000] for i in range(0, len(extracted_text), 4000)]
+                    for chunk in chunks:
+                        await update.message.reply_text(chunk.strip())
+                else:
+                    await update.message.reply_text(extracted_text.strip())
+            else:
+                await update.message.reply_text("❌ No text found in the image.")
+        elif read_response:
+            await update.message.reply_text("❌ Could not find any text regions in the image.")
+        else:
+            await update.message.reply_text("❌ Failed to recognize text after multiple attempts.")
+
+    except ServiceRequestError as e:
+        logger.error(f"Azure Service Request Error: {e}")
+        await update.message.reply_text("❌ Error contacting the analysis service. Please try again later.")
+    except ValueError as e:
+        logger.error(f"Value Error: {e}")
+        await update.message.reply_text(f"❌ {str(e)}")
+    except Exception as e:
+        logger.exception("Error processing image:")
+        await update.message.reply_text("❌ An unexpected error occurred while processing the image.")
+    # No need for finally for img_stream.close(), BytesIO manages memory
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends a welcome message with an inline button."""
@@ -96,32 +161,93 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()  # Acknowledge the callback query
     if query.data == 'app_version':
+        # Use edit_message_text or reply_text depending on the desired behavior
+        # await query.edit_message_text(text=f"Current application version: {APP_VERSION}")
+        # or reply with a new message
         await query.message.reply_text(f"Current application version: {APP_VERSION}")
+
 
 async def handle_version_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the 'version' text message."""
-    if update.message.text.lower() == "version":
+    # Check that the text exists and equals 'version' (case-insensitive)
+    if update.message and update.message.text and update.message.text.lower() == "version":
         await update.message.reply_text(f"Current application version: {APP_VERSION}")
 
-def main():
-    # Initialize the bot with the token
+async def health_check(request):
+    """Simple health check endpoint."""
+    logger.debug("Health check requested")
+    return web.Response(text="OK", status=200)
+
+async def run_health_check_server():
+    """Runs the aiohttp server for health checks."""
+    app = web.Application()
+    app.add_routes([web.get('/health', health_check)])
+    runner = web.AppRunner(app)
+    await runner.setup()
+    # Use 0.0.0.0 to listen on all interfaces (important for Docker/cloud)
+    site = web.TCPSite(runner, '0.0.0.0', HEALTH_CHECK_PORT)
+    try:
+        await site.start()
+        logger.info(f"✅ Health check server started on http://0.0.0.0:{HEALTH_CHECK_PORT}/health")
+        return runner # Return the runner for later cleanup
+    except OSError as e:
+        logger.error(f"❌ Failed to start health check server on port {HEALTH_CHECK_PORT}: {e}")
+        # Decide what to do next - crash or continue without health check
+        # exit(1) # For example, exit if health check is critical
+        return None # Or return None if the bot can run without it
+
+async def main():
+    """Runs both the Telegram bot and the health check server concurrently."""
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # Handle the /start command
+    # Add handlers
     application.add_handler(CommandHandler("start", start))
-
-    # Handle inline button clicks
     application.add_handler(CallbackQueryHandler(button_click))
-
-    # Handle image messages
     application.add_handler(MessageHandler(filters.PHOTO, handle_image))
-
-    # Handle the 'version' text message
+    # Ensure the text handler doesn't intercept commands
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_version_text))
 
-    # Start polling for updates
-    application.run_polling()
-    print("✅ Bot is running and listening for images.")
+    # Start the health check server
+    health_check_runner = await run_health_check_server()
+
+    logger.info("Starting bot polling...")
+    try:
+        # Start the bot (use await application.initialize() and await application.start()
+        # if using PTB version v20+)
+        # For v13.x and below, start_polling() is a blocking call,
+        # but since we use asyncio.run(), it will run in the event loop.
+        # In v20+, start_polling() is non-blocking and needs await.
+        # Check PTB version or just use the modern approach:
+        await application.initialize() # Initialization (v20+)
+        await application.start()      # Start receiving updates (v20+)
+        await application.updater.start_polling() # Start polling (v20+)
+
+        # Keep the main script alive (if start_polling is non-blocking)
+        # This is only needed if health_check_runner doesn't keep the event loop active
+        # Usually, the aiohttp server keeps the loop active, so this might be redundant
+        while True:
+             await asyncio.sleep(3600) # Just sleep for a long time
+
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user (KeyboardInterrupt)")
+    except Exception as e:
+        logger.exception("An error occurred in the main loop:")
+    finally:
+        logger.info("Shutting down application...")
+        if application.updater and application.updater.is_running:
+             await application.updater.stop() # Stop polling (v20+)
+        await application.stop()         # Stop receiving updates (v20+)
+        await application.shutdown()     # Shut down the application (v20+)
+
+        if health_check_runner:
+            logger.info("Cleaning up health check server...")
+            await health_check_runner.cleanup() # Clean up aiohttp resources
+
+    logger.info("Application shutdown complete.")
 
 if __name__ == '__main__':
-    main()
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        # Log fatal errors during asyncio startup/shutdown
+        logger.critical(f"Critical error during asyncio execution: {e}", exc_info=True)
