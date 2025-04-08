@@ -9,7 +9,7 @@ from azure.core.exceptions import ServiceRequestError
 import asyncio
 from aiohttp import web
 import logging
-
+#1
 # Load environment variables from .env file
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
