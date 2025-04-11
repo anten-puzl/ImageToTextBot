@@ -9,7 +9,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SUBSCRIPTION_KEY = os.getenv("AiAzureToken")
 ENDPOINT = os.getenv("AiAzureEndPoint")
 HEALTH_CHECK_PORT = int(os.getenv("PORT", 8000))
-BOT_PASSWORD = os.getenv("BOT_PASSWORD")  # Добавлена переменная для пароля
+BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 
 # Check if required environment variables are set
 if not TELEGRAM_TOKEN:
