@@ -9,6 +9,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SUBSCRIPTION_KEY = os.getenv("AiAzureToken")
 ENDPOINT = os.getenv("AiAzureEndPoint")
 HEALTH_CHECK_PORT = int(os.getenv("PORT", 8000))
+BOT_PASSWORD = os.getenv("BOT_PASSWORD")  # Добавлена переменная для пароля
 
 # Check if required environment variables are set
 if not TELEGRAM_TOKEN:
@@ -17,5 +18,7 @@ if not TELEGRAM_TOKEN:
 if not SUBSCRIPTION_KEY or not ENDPOINT:
     print("❌ AiAzureToken or AiAzureEndPoint not found in .env file.")
     exit()
+if not BOT_PASSWORD:
+    print("⚠️ BOT_PASSWORD not found in .env file. Bot will be accessible without password.")
 
 APP_VERSION = "1.01"
