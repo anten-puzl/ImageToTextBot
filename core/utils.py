@@ -13,7 +13,8 @@ try:
     from core.azure_client import analyze_image
 except ImportError:
     # Fallback for direct execution
-    print("Warning: Could not import analyze_image from core.azure_client")
+    logger = logging.getLogger(__name__)
+    logger.warning("Could not import analyze_image from core.azure_client")
 
 logger = logging.getLogger(__name__)
 

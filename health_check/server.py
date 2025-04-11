@@ -22,8 +22,8 @@ async def run_health_check_server():
     site = web.TCPSite(runner, '0.0.0.0', HEALTH_CHECK_PORT)
     try:
         await site.start()
-        logger.info(f"✅ Health check server started on http://0.0.0.0:{HEALTH_CHECK_PORT}/health")
+        logger.info(f"Health check server started on http://0.0.0.0:{HEALTH_CHECK_PORT}/health")
         return runner
     except OSError as e:
-        logger.error(f"❌ Failed to start health check server on port {HEALTH_CHECK_PORT}: {e}")
+        logger.error(f"Failed to start health check server on port {HEALTH_CHECK_PORT}: {e}")
         return None

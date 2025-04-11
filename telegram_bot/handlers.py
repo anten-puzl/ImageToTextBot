@@ -4,44 +4,46 @@ import logging
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 from core.utils import analyze_image_with_retry, split_long_message
-from core.config import APP_VERSION, BOT_PASSWORD  # Import BOT_PASSWORD
+from core.config import APP_VERSION, BOT_PASSWORD
 from azure.core.exceptions import ServiceRequestError
 
 logger = logging.getLogger(__name__)
 
 # Dictionary to store user authorization status (user_id: is_authorized)
 user_authorization = {}
-CORRECT_PASSWORD = BOT_PASSWORD  # Use password from config
+CORRECT_PASSWORD = BOT_PASSWORD
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends a welcome message and handles password entry."""
     user_id = update.effective_user.id
+    
     if not CORRECT_PASSWORD:
         user_authorization[user_id] = True
         keyboard = [
             [InlineKeyboardButton("ℹ️ Version", callback_data='app_version')],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("Welcome! Bot is running without a password.", reply_markup=reply_markup)
-        return 'AUTHORIZED'
+        await update.message.reply_text("Welcome! Send an image to recognize text.", reply_markup=reply_markup)
+        return AUTHORIZED
     elif user_id not in user_authorization:
-        await update.message.reply_text("Welcome! Please enter the password to continue:")
-        return 'WAITING_FOR_PASSWORD'
+        await update.message.reply_text("Please enter the password to continue:")
+        return WAITING_FOR_PASSWORD
     elif user_authorization[user_id]:
         keyboard = [
             [InlineKeyboardButton("ℹ️ Version", callback_data='app_version')],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text("You are authorized. Send an image to recognize text.", reply_markup=reply_markup)
-        return 'AUTHORIZED'
+        return AUTHORIZED
     else:
         await update.message.reply_text("Incorrect password. Bot operation stopped.")
-        return 'UNAUTHORIZED'
+        return UNAUTHORIZED
 
 async def process_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Processes the entered password."""
     user_id = update.effective_user.id
     entered_password = update.message.text
+    
     if entered_password == CORRECT_PASSWORD:
         user_authorization[user_id] = True
         keyboard = [
@@ -49,36 +51,36 @@ async def process_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text("Password accepted. You are authorized. Send an image to recognize text.", reply_markup=reply_markup)
-        return 'AUTHORIZED'
+        return AUTHORIZED
     else:
         user_authorization[user_id] = False
         await update.message.reply_text("Incorrect password. Please try again by sending /start.")
-        return 'WAITING_FOR_PASSWORD'
+        return UNAUTHORIZED
 
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the inline button click."""
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
-    if user_authorization.get(user_id, False):
+    if user_authorization.get(user_id, False) or not CORRECT_PASSWORD:
         if query.data == 'app_version':
             await query.message.reply_text(f"Current application version: {APP_VERSION}")
     else:
-        await query.message.reply_text("Bot is not authorized. Please enter the password by sending /start.")
+        await query.message.reply_text("Please enter the password by sending /start.")
 
 async def handle_version_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the 'version' text message."""
     user_id = update.effective_user.id
-    if user_authorization.get(user_id, False):
+    if user_authorization.get(user_id, False) or not CORRECT_PASSWORD:
         if update.message and update.message.text and update.message.text.lower() == "version":
             await update.message.reply_text(f"Current application version: {APP_VERSION}")
     else:
-        await update.message.reply_text("Bot is not authorized. Please enter the password by sending /start.")
+        await update.message.reply_text("Please enter the password by sending /start.")
 
 async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles incoming image messages and performs OCR if authorized."""
     user_id = update.effective_user.id
-    if user_authorization.get(user_id, False):
+    if user_authorization.get(user_id, False) or not CORRECT_PASSWORD:
         if not update.message or not update.message.photo:
             await update.message.reply_text("Please send an image.")
             return
@@ -140,4 +142,4 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 pass
     else:
-        await update.message.reply_text("Bot is not authorized. Please enter the password by sending /start.")
+        await update.message.reply_text("Please enter the password by sending /start.")

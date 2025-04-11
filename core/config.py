@@ -18,7 +18,5 @@ if not TELEGRAM_TOKEN:
 if not SUBSCRIPTION_KEY or not ENDPOINT:
     print("❌ AiAzureToken or AiAzureEndPoint not found in .env file.")
     exit()
-if not BOT_PASSWORD:
-    print("⚠️ BOT_PASSWORD not found in .env file. Bot will be accessible without password.")
 
 APP_VERSION = "1.01"

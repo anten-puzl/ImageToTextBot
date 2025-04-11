@@ -3,7 +3,7 @@ import asyncio
 import logging
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, CommandHandler, CallbackQueryHandler
 from core.config import TELEGRAM_TOKEN
-from telegram_bot.handlers import start, button_click, handle_image, handle_version_text
+from telegram_bot.handlers import start, button_click, handle_image, handle_version_text, process_password
 from health_check.server import run_health_check_server
 
 # Configure logging
@@ -18,6 +18,7 @@ async def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_click))
     application.add_handler(MessageHandler(filters.PHOTO, handle_image))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_password))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_version_text))
 
     # Start the health check server
