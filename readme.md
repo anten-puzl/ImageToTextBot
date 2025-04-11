@@ -60,6 +60,7 @@ The bot will start polling for updates from Telegram, and the health check serve
 
 ## Project Structure
 
+```
 .
 ├── core/
 │   ├── __init__.py
@@ -77,6 +78,7 @@ The bot will start polling for updates from Telegram, and the health check serve
 ├── .gitignore
 ├── main.py                 # Main entry point of the application
 └── requirements.txt        # Lists the required Python packages
+```
 
 
 ## Contributing
